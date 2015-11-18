@@ -138,7 +138,7 @@ def download_data_profiles(exp_code):
     cur_ob.execute("SELECT id FROM experiments WHERE code='%s';" % exp_code)
     exp_id = cur_ob.fetchone()[0]
     
-    sys.stderr.write('Downloading datasets associated to experiment %s\n' % exp_code)
+    sys.stderr.write('\nDownloading datasets associated to experiment %s\n' % exp_code)
     
     # get the conversion dictionary from 
     cur_ob.execute("""SELECT   data.code, samples.code 

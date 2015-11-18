@@ -9,6 +9,7 @@ Created on Thu Nov 12 23:54:03 2015
 import numpy as np
 import sys
 import csv
+import os
 import argparse
 from progressbar import ProgressBar
 from openbis import download_data_profiles
@@ -17,7 +18,11 @@ from openbis import download_data_profiles
 MIN_PEAK_SIZE = 5000
 MAX_MZ_DIFFERENCE = 0.003
 MAX_REF_MASS = 1000
-REFERENCE_MASS_FNAME = 'EMDTB.csv'
+base_path = os.path.split(os.path.realpath(__file__))[0]
+REFERENCE_MASS_FNAME = os.path.join(base_path, 'EMDTB.csv')
+if not os.path.exists(REFERENCE_MASS_FNAME):
+    raise Exception('Cannot locate the CSV file containing reference masses: '
+                    + REFERENCE_MASS_FNAME)
 
 def findpeaks(a):
     """
@@ -117,7 +122,7 @@ with ProgressBar(max_value=n_samples) as progress:
 if args.output_fname is None:
     args.output_fname = args.exp_code + '.csv'
 
-sys.stderr.write('Writing results to output CSV file "%s" ... ' % args.output_fname)
+sys.stderr.write('\nWriting results to output CSV file "%s" ... ' % args.output_fname)
 with open(args.output_fname, 'w') as fp:
     csv_output = csv.writer(fp)
     ref_keys = ['name', 'keggId', 'formula', 'mass']
