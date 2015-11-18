@@ -12,13 +12,15 @@ import csv
 import os
 import argparse
 from progressbar import ProgressBar
+
+base_path = os.path.split(os.path.realpath(__file__))[0]
+sys.path.append(base_path)
 from openbis import download_data_profiles
 
 # script parameters (as determined by Mattia)
 MIN_PEAK_SIZE = 5000
 MAX_MZ_DIFFERENCE = 0.003
 MAX_REF_MASS = 1000
-base_path = os.path.split(os.path.realpath(__file__))[0]
 REFERENCE_MASS_FNAME = os.path.join(base_path, 'EMDTB.csv')
 if not os.path.exists(REFERENCE_MASS_FNAME):
     raise Exception('Cannot locate the CSV file containing reference masses: '
@@ -126,7 +128,7 @@ sys.stderr.write('\nWriting results to output CSV file "%s" ... ' % args.output_
 with open(args.output_fname, 'w') as fp:
     csv_output = csv.writer(fp)
     ref_keys = ['name', 'keggId', 'formula', 'mass']
-    csv_output.writerow(ref_keys + map(str, xrange(1, n_samples+1)))
+    csv_output.writerow(ref_keys + dsSampleCode)
     for j, rdict in enumerate(reference_mass_dlist):
         csv_output.writerow(map(rdict.get, ref_keys) + list(merged[:, j].flat))
 
