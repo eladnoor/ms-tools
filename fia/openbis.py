@@ -161,8 +161,10 @@ def download_data_profiles(exp_code):
         raise Exception('Could not find all the datasets in openBIS, aborting...')
     
     with ProgressBar(max_value=len(dsCode2smpCode)) as progress:
-        dataProfiles = []
-        for i, fia_ms_run_id in enumerate(dsCode2fiaId.values()):
+        dataProfiles = {}
+        for i, (dsCode, fia_ms_run_id) in enumerate(dsCode2fiaId.iteritems()):
+            progress.update(i)
+
             cur_mb.execute("""SELECT   mz, intensities 
                               FROM     fia_profiles
                               WHERE    fia_ms_run_id=%d 
@@ -175,9 +177,8 @@ def download_data_profiles(exp_code):
             intens = map(lambda s: map(float, s.split(',')), intens)
             intens = list(itertools.chain(*intens))
             profile = np.matrix([mz, intens], dtype=np.single).T
-            dataProfiles.append(profile)
-            progress.update(i)
+            dataProfiles[dsCode2smpCode[dsCode]] = profile
     
     conn_ob.close()
     conn_mb.close()
-    return dsCode2smpCode.keys(), dsCode2smpCode.values(), dataProfiles
+    return dataProfiles
