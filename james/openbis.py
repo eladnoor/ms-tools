@@ -12,8 +12,10 @@ import pandas as pd
 HOST          = 'baobab.ethz.ch'        # hostname of the server running openBIS
 PORT          = 5432                    # port for openBIS database
 PASSWORD      = 'openbisyeastx'         # password for openBIS
-OPENBIS_DSN   = 'openbis_productive'    # data source name of the openBIS database
-OPENBIS_LOGIN = 'openbis_readonly'      # username for openBIS
+OPENBIS_DSN   = 'openbis_productive'    # data source name of the openBIS DB
+OPENBIS_LOGIN = 'openbis_readonly'      # username for openBIS DB
+METABOL_DSN   = 'metabol_productive'    # data source name of the metabolic DB
+METABOL_LOGIN = 'metabol_readonly'      # username for metabolic DB
 DSTY_ID       = 4
 STPT_DICT     = {1: 'Name',
                  2: 'Species/Strain/Cell',
@@ -28,12 +30,31 @@ STRAIN_COL_NAME = STPT_DICT[2]
 
 FLOAT_COLUMNS = [4, 6]
 
+def OBconnect():
+    """
+        Not necessary for obtaining the metadata. This database contains the
+        eicML files that contain the raw MS data.
+    """
+    return psycopg2.connect(database=OPENBIS_DSN,
+                            user=OPENBIS_LOGIN,
+                            password=PASSWORD,
+                            host=HOST,
+                            port=PORT)
+
+def DBconnect():
+    """
+        Not necessary for obtaining the metadata. This database contains the
+        eicML files that contain the raw MS data.
+    """
+    return psycopg2.connect(database=METABOL_DSN,
+                            user=METABOL_LOGIN,
+                            password=PASSWORD,
+                            host=HOST,
+                            port=PORT)
+
+
 def download_metadata(exp_code):
-    conn_ob = psycopg2.connect(database=OPENBIS_DSN,
-                               user=OPENBIS_LOGIN,
-                               password=PASSWORD,
-                               host=HOST,
-                               port=PORT)
+    conn_ob = OBconnect()
     
     sql = """SELECT   d.samp_id samp_id, d.code perm_id, d.id ds_id, s.code, sp.stpt_id, sp.value
              FROM     experiments e, data d, samples s, sample_properties sp
@@ -61,8 +82,20 @@ def download_metadata(exp_code):
                 new_result_df.loc[:, STPT_DICT[i]].apply(float)
 
     return new_result_df
-    
+
 if __name__ == '__main__':
     # example
-    samples = download_metadata('E221350')
-    print samples
+#    samples = download_metadata('E221350')
+#    print samples
+    conn_db = DBconnect()
+    sql = """SELECT   d.samp_id samp_id, d.code perm_id, d.id ds_id, s.code, sp.stpt_id, sp.value
+             FROM     experiments e, data d, samples s, sample_properties sp
+             WHERE    e.code='%s'
+                AND   d.expe_id = e.id
+                AND   d.dsty_id = %d
+                AND   s.id = d.samp_id
+                AND   s.id = sp.samp_id
+          """ % (exp_code, DSTY_ID)
+    result_df = pd.read_sql_query(sql, conn_ob)
+    
+    conn_db.close()
