@@ -12,6 +12,7 @@ import numpy as np
 from scipy.stats import linregress
 import seaborn as sns
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 sns.set()
 
 parser = argparse.ArgumentParser(description='Analyze Bradford assay (protein quantification) data')
@@ -29,26 +30,32 @@ if args.output_fname is None:
 else:
     output_fname = args.output_fname
 
+PROTEIN_CONC_L = 'Protein concentration [$\mu$g/mL]'
+STDEV_L = 'Standard dev. [$\mu$g/mL]'
 def get_all_tables(fp):
     sheet_to_df = {}
     for sheet_name, sheet_df in pd.read_excel(fp, None, index_col=None, header=None).iteritems():
-        start_rows = sheet_df[sheet_df[0] == '<>'].index
+        first_col = sheet_df[0]
+        start_rows = sheet_df[first_col == '<>'].index
         for start_row in start_rows:
-            # iterate all the letters from A to H and stop when the value doesn't match
-            # the expected row name
-            for i, end_row in enumerate(range(start_row+1, sheet_df.shape[0]+1)):
-                if end_row == sheet_df.shape[0] or sheet_df.iloc[end_row, 0] != chr(ord('A') + i):
-                    break
-            table = sheet_df.iloc[start_row+1:end_row, 1:]
-            table.columns = sheet_df.iloc[start_row, 1:].apply(int)
-            table.columns.name = 'col'
-            table['row'] = sheet_df.iloc[start_row+1:end_row, 0]
-            table = pd.melt(table, id_vars=['row'])
-            table['well'] = table['row'] + map(str, table['col'])
-            table = table[~pd.isnull(table['value'])]
-            table.index = table['well']
-            table = table[['value']]
-            sheet_to_df.setdefault(sheet_name, []).append(table)
+            # iterate row letters from the first one after the <> until the
+            # end of the table (or stop at 'H').
+            end_row = start_row+1
+            letter = first_col[end_row]
+            while end_row in first_col.index and letter == first_col[end_row]:
+                end_row += 1
+                letter = chr(ord(letter) + 1)
+                
+            tbl = sheet_df.iloc[start_row+1:end_row, 1:]
+            tbl.columns = sheet_df.iloc[start_row, 1:].fillna(0).apply(int)
+            tbl.columns.name = 'col'
+            tbl['row'] = first_col[start_row+1:end_row]
+            tbl = pd.melt(tbl, id_vars=['row'])
+            tbl['well'] = tbl['row'] + map(str, tbl['col'])
+            tbl = tbl[~pd.isnull(tbl['value'])]
+            tbl.index = tbl['well']
+            tbl = tbl[['value']]
+            sheet_to_df.setdefault(sheet_name, []).append(tbl)
     return sheet_to_df
 
 sheet_to_df = get_all_tables(args.excel_file)
@@ -83,18 +90,34 @@ conc_to_ratio = lambda c : c*slope + intercept
 ratio_to_conc = lambda r : (r - intercept) / slope
 df_data['conc'] = df_data['ratio'].apply(ratio_to_conc)
 
-fig, axs = plt.subplots(1, 2, figsize=(10, 5))
-axs[0].plot(df_std['dilution'] + 1e-2, df_std['ratio'], 'o')
-axs[0].plot(np.linspace(1e-2, 1600, 100), map(conc_to_ratio, np.linspace(1e-2, 1600, 100)), '-')
-axs[0].set_xlabel('Protein concentration [$\mu$g/mL]')
-axs[0].set_ylabel(ylabel)
+#%%
+fig = plt.figure(figsize=(10, 4)) 
+gs = gridspec.GridSpec(2, 3, width_ratios=[3.5, 0.3, 6], height_ratios=[3, 0.1], top=0.9, bottom=0.2)
+#fig, axs = plt.subplots(1, 2, figsize=(15, 5))
+ax0 = plt.subplot(gs[0,0])
+ax0.plot(df_std['dilution'] + 1e-2, df_std['ratio'], 'o')
+ax0.plot(np.linspace(1e-2, 1600, 100), map(conc_to_ratio, np.linspace(1e-2, 1600, 100)), '-')
+ax0.set_xlabel(PROTEIN_CONC_L)
+ax0.set_ylabel(ylabel)
+ax0.set_xlim(0, None)
+ax0.set_ylim(0, None)
 
 df_samples = df_data[df_data['label'] != 'STD']
 df_samples.loc[:, 'conc'] = df_samples['conc'] * df_samples['dilution']
-df_samples = df_samples.pivot(columns='label', values='conc')
-df_samples.plot(kind='box', ax=axs[1], rot=45)
-axs[1].set_ylabel('Protein concentration [$\mu$g/mL]')
-fig.tight_layout()
 
+ax1 = plt.subplot(gs[:,2])
+res_df = pd.DataFrame(index=df_samples['label'].unique(), columns=[PROTEIN_CONC_L, STDEV_L])
+res_df.index.name = 'Sample'
+conc_groups = df_samples.groupby('label')['conc']
+res_df[PROTEIN_CONC_L] = conc_groups.sum() / conc_groups.count()
+for l in res_df.index:
+    conc_vec = df_samples.loc[df_samples['label'] == l, 'conc']
+    res_df.loc[l, STDEV_L] = np.round(conc_vec.std(), 1)
+res_df[PROTEIN_CONC_L] = res_df[PROTEIN_CONC_L].round(1)
+res_df[PROTEIN_CONC_L].plot(kind='bar', yerr=res_df[STDEV_L], 
+                            ax=ax1, color=(0.9, 0.6, 0.65), table=res_df.T,
+                            linewidth=0)
+ax1.set_xlabel('')
+ax1.set_ylabel(PROTEIN_CONC_L)
+ax1.get_xaxis().set_visible(False)
 fig.savefig(output_fname, pgi=300)
-print df_samples.mean()
