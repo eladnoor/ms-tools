@@ -85,7 +85,11 @@ df_data = df_label.join(df_dilution).join(df_ratio).sort_index()
 df_std = df_data[df_data['label'] == 'STD']
 if df_std.shape[0] == 0:
     raise ValueError('All standards must be marked by the same label: "STD"')
-slope, intercept, _, _, _ = linregress(df_std['dilution'], df_std['ratio'])
+try:
+    slope, intercept, _, _, _ = linregress(df_std['dilution'].tolist(), df_std['ratio'].tolist())
+except AttributeError as e:
+    print df_std
+    raise e
 conc_to_ratio = lambda c : c*slope + intercept
 ratio_to_conc = lambda r : (r - intercept) / slope
 df_data['conc'] = df_data['ratio'].apply(ratio_to_conc)

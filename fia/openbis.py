@@ -11,7 +11,7 @@ import sys
 import numpy as np
 import itertools
 from collections import OrderedDict
-from progressbar import ProgressBar
+from tqdm import tqdm
 
 #% -------------------------------------------------------------------------
 #% fiaMLconfig - fiaexp database config file
@@ -114,7 +114,7 @@ dsUser4_customParser = ''
 dsUser4_type = 'alphanumeric'
 
 def list_to_comma_separated_string(l):
-    if type(l[0]) == types.StringType:
+    if type(l[0]) == str:
         return ','.join(map(lambda s: "'" + s + "'", l))
     else:
         return ','.join(map(str, l))
@@ -154,30 +154,27 @@ def download_data_profiles(exp_code):
                       WHERE    data_sets.perm_id in (%s)
                         AND    data_sets.id = fia_ms_runs.ds_id
                       ORDER BY data_sets.perm_id""" % 
-                   list_to_comma_separated_string(dsCode2smpCode.keys()))
+                   list_to_comma_separated_string(list(dsCode2smpCode.keys())))
     dsCode2fiaId = OrderedDict(cur_mb.fetchall())
 
-    if dsCode2smpCode.keys() != dsCode2fiaId.keys():
+    if list(dsCode2smpCode.keys()) != list(dsCode2fiaId.keys()):
         raise Exception('Could not find all the datasets in openBIS, aborting...')
     
-    with ProgressBar(max_value=len(dsCode2smpCode)) as progress:
-        dataProfiles = {}
-        for i, (dsCode, fia_ms_run_id) in enumerate(dsCode2fiaId.iteritems()):
-            progress.update(i)
-
-            cur_mb.execute("""SELECT   mz, intensities 
-                              FROM     fia_profiles
-                              WHERE    fia_ms_run_id=%d 
-                              ORDER BY low_mz"""
-                           % fia_ms_run_id)
-            mz, intens = zip(*cur_mb.fetchall())
-            mz = map(lambda s: map(float, s.split(',')), mz)
-            mz = list(itertools.chain(*mz))
-        
-            intens = map(lambda s: map(float, s.split(',')), intens)
-            intens = list(itertools.chain(*intens))
-            profile = np.matrix([mz, intens], dtype=np.single).T
-            dataProfiles[dsCode2smpCode[dsCode]] = profile
+    dataProfiles = {}
+    for i, (dsCode, fia_ms_run_id) in enumerate(tqdm(dsCode2fiaId.items())):
+        cur_mb.execute("""SELECT   mz, intensities 
+                          FROM     fia_profiles
+                          WHERE    fia_ms_run_id=%d 
+                          ORDER BY low_mz"""
+                       % fia_ms_run_id)
+        mz, intens = zip(*cur_mb.fetchall())
+        mz = map(lambda s: map(float, s.split(',')), mz)
+        mz = list(itertools.chain(*mz))
+    
+        intens = map(lambda s: map(float, s.split(',')), intens)
+        intens = list(itertools.chain(*intens))
+        profile = np.matrix([mz, intens], dtype=np.single).T
+        dataProfiles[dsCode2smpCode[dsCode]] = profile
     
     conn_ob.close()
     conn_mb.close()

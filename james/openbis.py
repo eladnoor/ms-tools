@@ -87,6 +87,7 @@ if __name__ == '__main__':
     # example
 #    samples = download_metadata('E221350')
 #    print samples
+    exp_code = 'E221350'
     conn_db = DBconnect()
     sql = """SELECT   d.samp_id samp_id, d.code perm_id, d.id ds_id, s.code, sp.stpt_id, sp.value
              FROM     experiments e, data d, samples s, sample_properties sp
@@ -96,6 +97,6 @@ if __name__ == '__main__':
                 AND   s.id = d.samp_id
                 AND   s.id = sp.samp_id
           """ % (exp_code, DSTY_ID)
-    result_df = pd.read_sql_query(sql, conn_ob)
+    result_df = pd.read_sql_query(sql, conn_db)
     
     conn_db.close()

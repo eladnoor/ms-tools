@@ -25,8 +25,8 @@ def compute_fractions(counts):
     """
     N = len(counts)-1
     F = np.matrix(np.zeros((N+1, N+1)))
-    for i in xrange(N+1):
-        for j in xrange(i+1):
+    for i in range(N+1):
+        for j in range(i+1):
             F[i,j] = comb(N-j, i-j) * THETA**(i-j) * (1-THETA)**(N-j)
             
     X = np.matrix(counts, dtype=float).T
@@ -39,10 +39,10 @@ if __name__ == '__main__':
     
     Y = compute_fractions(counts)
     
-    print "The corrected isotope relative abundances are:"
-    print '-'*50
-    print '  |  '.join(map(lambda d: ' M + %d ' % d, range(len(counts))))
-    print '  |  '.join(map(lambda s: '%4.1e' % (s*100), Y))
-    print '-'*50
+    print("The corrected isotope relative abundances are:")
+    print('-'*50)
+    print( '  |  '.join(map(lambda d: ' M + %d ' % d, range(len(counts)))))
+    print('  |  '.join(map(lambda s: '%4.1e' % (s*100), Y)))
+    print('-'*50)
     
-    print compute_fractions([1]*7)
+    print(compute_fractions([1]*7))

@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 """
 Created on Thu Nov 12 23:54:03 2015
@@ -11,7 +11,7 @@ import sys
 import os
 import argparse
 import pandas as pd
-from progressbar import ProgressBar
+from tqdm import tqdm
 
 base_path = os.path.split(os.path.realpath(__file__))[0]
 sys.path.append(base_path)
@@ -36,6 +36,7 @@ def findpeaks(a):
     tmp = np.diff(np.sign(np.diff(a.flat)))
     return np.where(tmp == -2)[0] + 1
 
+#%%
 parser = argparse.ArgumentParser(description='Download FIA raw data from openBIS')
 parser.add_argument('exp_code', type=str,
                     help='the openBIS experiment ID')
@@ -43,6 +44,7 @@ parser.add_argument('-o', dest='output_fname', type=str, default=None,
                     help='a filename for writing the output')
 args = parser.parse_args()
 
+#%%
 dataProfiles = download_data_profiles(args.exp_code)
 dsSampleCodes = sorted(dataProfiles.keys())
 n_samples = len(dsSampleCodes)
@@ -53,19 +55,17 @@ allPeaks = {}
 
 #%% identify peaks (local maxima)
 sys.stderr.write('\nCentroids identification\n')
-with ProgressBar(max_value=n_samples) as progress:
-    for i, s in enumerate(dsSampleCodes):
-        progress.update(i)
+for s in tqdm(dsSampleCodes):
 
-        # find all the values that are local maxima and pass the threshold
-        idxs = findpeaks(dataProfiles[s][:, 1])
-        idxs = filter(lambda j : dataProfiles[s][j, 1] >= MIN_PEAK_SIZE, idxs)
-        allPeaks[s] = dataProfiles[s][idxs, :]
+    # find all the values that are local maxima and pass the threshold
+    idxs = findpeaks(dataProfiles[s][:, 1])
+    idxs = list(filter(lambda j : dataProfiles[s][j, 1] >= MIN_PEAK_SIZE, idxs))
+    allPeaks[s] = dataProfiles[s][idxs, :]
 
 #%% Use the reference table to associate peaks to compounds, by minimum mass distance
 sys.stderr.write('\nMetabolites identification\n')
 
-reference_df = pd.DataFrame.from_csv(REFERENCE_MASS_FNAME, index_col=None)
+reference_df = pd.read_csv(REFERENCE_MASS_FNAME)
 
 # subtract the mass of H+ (i.e. look for deprotonated masses)
 proton_mass = reference_df.loc[0, 'mass']
@@ -82,18 +82,16 @@ peak_masses  = pd.DataFrame(index=reference_df.index, columns=dsSampleCodes,
                             dtype=np.single)
 peak_indices = pd.DataFrame(index=reference_df.index, columns=dsSampleCodes,
                             dtype=int)
-with ProgressBar(max_value=n_samples) as progress:
-    for i, s in enumerate(dsSampleCodes):
-        progress.update(i)
-        for j, refmass in reference_df['mass'].iteritems():
-            diffs = abs(allPeaks[s][:, 0] + proton_mass - refmass)
-            peak_idx = np.argmin(diffs)
-            if diffs[peak_idx] <= MAX_MZ_DIFFERENCE:
-                peak_indices.loc[j, s] = peak_idx
-                peak_masses.loc[j, s] = allPeaks[s][peak_idx, 0]
-            else:
-                peak_indices.loc[j, s] = -1
-                peak_masses.loc[j, s] = np.nan
+for s in tqdm(dsSampleCodes):
+    for j, refmass in reference_df['mass'].items():
+        diffs = abs(allPeaks[s][:, 0] + proton_mass - refmass)
+        peak_idx = np.argmin(diffs)
+        if diffs[peak_idx] <= MAX_MZ_DIFFERENCE:
+            peak_indices.loc[j, s] = peak_idx
+            peak_masses.loc[j, s] = allPeaks[s][peak_idx, 0]
+        else:
+            peak_indices.loc[j, s] = -1
+            peak_masses.loc[j, s] = np.nan
 
 # keep only the reference masses that actually have a 'hit' in at least one
 # of the samples, and calculate the median of all samples where a peak was 
@@ -114,19 +112,17 @@ sys.stderr.write('\nCreating final matrix\n')
 
 merged = pd.DataFrame(index=compound_df.index, columns=dsSampleCodes,
                       dtype=np.single)
-with ProgressBar(max_value=n_samples) as progress:
-    for i, s in enumerate(dsSampleCodes):
-        progress.update(i)
-        for j, median_mass in median_masses.iteritems():
-            peak_idx = peak_indices.loc[j, s]
-            if peak_idx != -1:
-                # if there is a peak associated with the metabolite,
-                # get the intensity of that peak
-                merged.loc[j, s] = allPeaks[s][peak_idx, 1]
-            else:
-                # otherwise, get the intensity from the closest mz in the raw data
-                idx = np.argmin(np.abs(median_mass - dataProfiles[s][:, 0]))
-                merged.loc[j, s] = dataProfiles[s][idx, 1]
+for s in tqdm(dsSampleCodes):
+    for j, median_mass in median_masses.items():
+        peak_idx = peak_indices.loc[j, s]
+        if peak_idx != -1:
+            # if there is a peak associated with the metabolite,
+            # get the intensity of that peak
+            merged.loc[j, s] = allPeaks[s][peak_idx, 1]
+        else:
+            # otherwise, get the intensity from the closest mz in the raw data
+            idx = np.argmin(np.abs(median_mass - dataProfiles[s][:, 0]))
+            merged.loc[j, s] = dataProfiles[s][idx, 1]
 
 merged = compound_df.join(merged)
 
