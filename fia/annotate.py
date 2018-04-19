@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 base_path = os.path.split(os.path.realpath(__file__))[0]
 sys.path.append(base_path)
-from openbis import download_data_profiles
+from openbis import download_data_profiles, get_sample_names
 
 # script parameters (as determined by Mattia)
 MIN_PEAK_SIZE = 5000
@@ -40,11 +40,16 @@ def findpeaks(a):
 parser = argparse.ArgumentParser(description='Download FIA raw data from openBIS')
 parser.add_argument('exp_code', type=str,
                     help='the openBIS experiment ID')
-parser.add_argument('-o', dest='output_fname', type=str, default=None,
-                    help='a filename for writing the output')
+parser.add_argument('-o', dest='output_path', type=str, default=None,
+                    help='the path where all output files will be written')
 args = parser.parse_args()
 
 #%%
+sample_df = pd.Series(get_sample_names(args.exp_code))
+sample_df.index.name = 'sample.code'
+sample_df.name = 'sample.name'
+sample_df = sample_df.to_frame().sort_index()
+
 dataProfiles = download_data_profiles(args.exp_code)
 dsSampleCodes = sorted(dataProfiles.keys())
 n_samples = len(dsSampleCodes)
@@ -54,8 +59,7 @@ n_samples = len(dsSampleCodes)
 allPeaks = {}
 
 #%% identify peaks (local maxima)
-sys.stderr.write('\nCentroids identification\n')
-for s in tqdm(dsSampleCodes):
+for s in tqdm(dsSampleCodes, desc='Identifying centroids'):
 
     # find all the values that are local maxima and pass the threshold
     idxs = findpeaks(dataProfiles[s][:, 1])
@@ -63,9 +67,8 @@ for s in tqdm(dsSampleCodes):
     allPeaks[s] = dataProfiles[s][idxs, :]
 
 #%% Use the reference table to associate peaks to compounds, by minimum mass distance
-sys.stderr.write('\nMetabolites identification\n')
-
 reference_df = pd.read_csv(REFERENCE_MASS_FNAME)
+reference_df.index.name = 'ion.code'
 
 # subtract the mass of H+ (i.e. look for deprotonated masses)
 proton_mass = reference_df.loc[0, 'mass']
@@ -82,7 +85,7 @@ peak_masses  = pd.DataFrame(index=reference_df.index, columns=dsSampleCodes,
                             dtype=np.single)
 peak_indices = pd.DataFrame(index=reference_df.index, columns=dsSampleCodes,
                             dtype=int)
-for s in tqdm(dsSampleCodes):
+for s in tqdm(dsSampleCodes, desc='Identifying metabolites'):
     for j, refmass in reference_df['mass'].items():
         diffs = abs(allPeaks[s][:, 0] + proton_mass - refmass)
         peak_idx = np.argmin(diffs)
@@ -102,34 +105,44 @@ median_masses = peak_masses.loc[ref_hits, :].median(1)
 compound_df   = compound_df.loc[ref_hits, :]
 
 #%%
-sys.stderr.write('\nCreating final matrix\n')
- 
-# merged[i, j] will contain the intensity of the peak which was associated with
+# data_df[i, j] will contain the intensity of the peak which was associated with
 # reference mass 'j' in sample 'i'. If there wasn't any close enough mass, 
 # we take the median mass of the ions associated with this reference mass
 # across all other samples, and find the ion closest to the median (even if 
 # it is not actually a peak).
 
-merged = pd.DataFrame(index=compound_df.index, columns=dsSampleCodes,
-                      dtype=np.single)
-for s in tqdm(dsSampleCodes):
+data_df = pd.DataFrame(index=compound_df.index, columns=dsSampleCodes,
+                       dtype=np.single)
+data_df.index.name = 'ion.code'
+
+for s in tqdm(dsSampleCodes, desc='Creating final matrix'):
     for j, median_mass in median_masses.items():
         peak_idx = peak_indices.loc[j, s]
         if peak_idx != -1:
             # if there is a peak associated with the metabolite,
             # get the intensity of that peak
-            merged.loc[j, s] = allPeaks[s][peak_idx, 1]
+            data_df.loc[j, s] = allPeaks[s][peak_idx, 1]
         else:
             # otherwise, get the intensity from the closest mz in the raw data
             idx = np.argmin(np.abs(median_mass - dataProfiles[s][:, 0]))
-            merged.loc[j, s] = dataProfiles[s][idx, 1]
+            data_df.loc[j, s] = dataProfiles[s][idx, 1]
 
-merged = compound_df.join(merged)
+#merged = compound_df.join(merged)
 
 #%%
-if args.output_fname is None:
-    args.output_fname = args.exp_code + '.csv'
+if args.output_path is None:
+    args.output_path = os.path.join(os.path.abspath(os.path.curdir),
+                                    args.exp_code)
 
-sys.stderr.write('\nWriting results to output CSV file "%s" ... ' % args.output_fname)
-merged.to_csv(args.output_fname)
+ion_fname = args.output_path + '_ions.csv'
+sample_fname = args.output_path + '_samples.csv'
+data_fname = args.output_path + '_data.csv'
+
+sys.stderr.write('\nWriting results to output CSV files to path "%s" ... '
+                 % args.output_path)
+compound_df.to_csv(ion_fname)
+data_df.to_csv(data_fname)
+sample_df.to_csv(sample_fname)
+
 sys.stderr.write('[DONE]\n')
+

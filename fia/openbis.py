@@ -6,12 +6,11 @@ Created on Fri Nov 13 10:53:11 2015
 """
 
 import psycopg2
-import types
-import sys
 import numpy as np
 import itertools
 from collections import OrderedDict
 from tqdm import tqdm
+import settings as S
 
 #% -------------------------------------------------------------------------
 #% fiaMLconfig - fiaexp database config file
@@ -48,70 +47,8 @@ from tqdm import tqdm
 #% -------------------------------------------------------------------------
 
 # openbis config
-host      = 'baobab.ethz.ch'  # hostname of the server running openBIS
-port      = 5432
-driver    = 'org.postgresql.Driver'                  # driver used to access openBIS
-use_ssl   = False                                    # Boolean specifying the use of SSl
-password  = 'openbisyeastx'                          # password for openBIS
-openbis_dsn   = 'openbis_productive'                     # data source name of the openBIS database
-openbis_login = 'openbis_readonly'                       # username for openBIS
-metabol_dsn   = 'metabol_productive'                     # data source name of the metabol database
-metabol_login = 'metabol_readonly'                       # username for openBIS
-exty_id = 1
-saty_id = 1
-dsty_id = 3
-
-#% DS COMMENTs / P[xxx]#[xxx][a-z]
-dsPlateStr_table = 'data_set_properties'
-dsPlateStr_pt_id = 2
-
-#% DS PERTURBATION
-dsSamplePerturbation_table = 'sample_properties'
-dsSamplePerturbation_pt_id = 3
-dsSamplePerturbation_customParser = ''
-dsSamplePerturbation_type = 'alphanumeric'
-
-#% DS SAMPLENAME
-dsSampleName_table = 'sample_properties'
-dsSampleName_pt_id = 1
-dsSampleName_customParser = ''
-dsSampleName_type = 'alphanumeric'
-
-#% DS SAMPLEAMOUNT
-dsSampleAmount_table = 'sample_properties'
-dsSampleAmount_pt_id = 6
-dsSampleAmount_customParser = ''
-dsSampleAmount_type = 'numeric'
-
-#% DS CONTROL
-dsControl_table = 'sample_properties'
-dsControl_pt_id = 7
-dsControl_customParser = '@parseControls'
-dsControl_type = 'numeric'
-
-#% DS USER1
-dsUser1_table = 'sample_properties'
-dsUser1_pt_id = 1
-dsUser1_customParser = ''
-dsUser1_type = 'alphanumeric'
-
-#% DS USER2
-dsUser2_table = 'sample_properties'
-dsUser2_pt_id = 4
-dsUser2_customParser = ''
-dsUser2_type = 'numeric'
-
-#% DS USER3
-dsUser3_table = 'sample_properties'
-dsUser3_pt_id = 6
-dsUser3_customParser = ''
-dsUser3_type = 'numeric'
-
-#% DS USER4
-dsUser4_table = 'data_set_properties'
-dsUser4_pt_id = 2
-dsUser4_customParser = ''
-dsUser4_type = 'alphanumeric'
+STPT_ID = 1
+DSTY_ID = 3
 
 def list_to_comma_separated_string(l):
     if type(l[0]) == str:
@@ -120,16 +57,16 @@ def list_to_comma_separated_string(l):
         return ','.join(map(str, l))
 
 def download_data_profiles(exp_code):
-    conn_ob = psycopg2.connect(database=openbis_dsn,
-                               user=openbis_login,
-                               password=password,
-                               host=host,
-                               port=port)
-    conn_mb = psycopg2.connect(database=metabol_dsn,
-                               user=metabol_login,
-                               password=password,
-                               host=host,
-                               port=port)
+    conn_ob = psycopg2.connect(database=S.OPENBIS_DSN,
+                               user=S.OPENBIS_LOGIN,
+                               password=S.PASSWORD,
+                               host=S.HOST,
+                               port=S.PORT)
+    conn_mb = psycopg2.connect(database=S.METABOL_DSN,
+                               user=S.METABOL_LOGIN,
+                               password=S.PASSWORD,
+                               host=S.HOST,
+                               port=S.PORT)
     cur_ob = conn_ob.cursor()
     cur_mb = conn_mb.cursor()
 
@@ -138,15 +75,13 @@ def download_data_profiles(exp_code):
     cur_ob.execute("SELECT id FROM experiments WHERE code='%s';" % exp_code)
     exp_id = cur_ob.fetchone()[0]
     
-    sys.stderr.write('\nDownloading datasets associated to experiment %s\n' % exp_code)
-    
     # get the conversion dictionary from 
     cur_ob.execute("""SELECT   data.code, samples.code 
                       FROM     data, samples
                       WHERE    data.expe_id='%d' AND data.dsty_id=%d
                         AND    data.samp_id = samples.id
                       ORDER BY data.code""" % 
-                   (exp_id, dsty_id))
+                   (exp_id, DSTY_ID))
     dsCode2smpCode = OrderedDict(cur_ob.fetchall())
 
     cur_mb.execute("""SELECT   data_sets.perm_id, fia_ms_runs.id
@@ -161,7 +96,8 @@ def download_data_profiles(exp_code):
         raise Exception('Could not find all the datasets in openBIS, aborting...')
     
     dataProfiles = {}
-    for i, (dsCode, fia_ms_run_id) in enumerate(tqdm(dsCode2fiaId.items())):
+    for dsCode, fia_ms_run_id in tqdm(dsCode2fiaId.items(),
+                                      desc='Downloading m/z data'):
         cur_mb.execute("""SELECT   mz, intensities 
                           FROM     fia_profiles
                           WHERE    fia_ms_run_id=%d 
@@ -179,3 +115,31 @@ def download_data_profiles(exp_code):
     conn_ob.close()
     conn_mb.close()
     return dataProfiles
+
+def get_sample_names(exp_code):
+    conn_ob = psycopg2.connect(database=S.OPENBIS_DSN,
+                               user=S.OPENBIS_LOGIN,
+                               password=S.PASSWORD,
+                               host=S.HOST,
+                               port=S.PORT)
+    cur_ob = conn_ob.cursor()
+
+    # find the experiment ID (an openBIS internal ID, not the code that appears on
+    # the website)
+    cur_ob.execute("SELECT id FROM experiments WHERE code='%s';" % exp_code)
+    exp_id = cur_ob.fetchone()[0]
+
+    cur_ob.execute("""SELECT   samples.code, sample_properties.value
+                      FROM     data, samples, sample_properties
+                      WHERE    data.expe_id='%d' AND data.dsty_id=%d
+                        AND    data.samp_id = samples.id
+                        AND    samples.id = sample_properties.samp_id
+                        AND    sample_properties.stpt_id = %d
+                      ORDER BY data.code""" % 
+                   (exp_id, DSTY_ID, STPT_ID))
+    dsCode2name = OrderedDict(cur_ob.fetchall())
+    return dsCode2name
+    
+if __name__ == '__main__':
+    dsCode2name = get_sample_names('E222456')
+    print(dsCode2name)
